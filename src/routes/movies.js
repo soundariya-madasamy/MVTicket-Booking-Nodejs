@@ -19,7 +19,7 @@ router.get("/:id", async (req, res) => {
       [movieId]
     );
     if (movieRows.length === 0) {
-      res.status(404).send("Movie not found");
+      return res.status(404).send("Movie not found");
     }
 
     const [showRows] = await pool.query( 
