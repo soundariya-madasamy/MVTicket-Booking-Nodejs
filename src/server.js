@@ -28,13 +28,14 @@
 const express = require("express");
 const cors = require("cors");
 const app = express();
-const { router: authRoute, users } = require("./routes/auth");
+const authRoute = require("./routes/auth");
 const adminRoute = require("./routes/admin");
 const moviesRoute = require("./routes/movies");
 const showsRoute = require("./routes/shows");
 const seatsRoute = require("./routes/seats");
 
-app.use(express.json());
+app.use(express.json()); //  parse incoming requests with a JSON body.
+
 app.use(cors({ 
   origin: "http://localhost:3000",  
   methods: ["GET", "POST", "PUT", "DELETE"], 
@@ -50,5 +51,13 @@ app.use("/api/seats", seatsRoute);
 app.listen(5000, () => {
   console.log("Backend running on http://localhost:5000");
 });
+
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(err.statusCode || 500).json({
+    error: err.message || "Internal server error"
+  });
+});
+
 
 module.exports = app;

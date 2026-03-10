@@ -1,154 +1,237 @@
-const expect = require("chai").expect;
-const request = require("supertest");
-const sinon = require("sinon");
-const app = require("../src/server");
-const pool = require("../src/db");
+const { expect } = require('chai');
+const sinon = require('sinon');
+const movieService = require('./../src/services/movieServices'); 
+const { getMoviesList, getMovieById, createMovie, updateMovie, deleteMovie } = require('./../src/controllers/movieControllers'); 
 
-describe("Movie API Tests", () => {
-  afterEach(() => {
-    sinon.restore(); 
-  });
+describe('movieControllers', () => {
+    let req, res, next;
 
-  // ---------------- GET ALL ----------------
-  describe("Movie GET API", () => {
-    it("should get list of movies", async () => {
-      const res = await request(app).get("/api/movies");
-      expect(res.status).to.equal(200);
-      expect(res.body).to.be.an("array");
-      if (res.body.length > 0) {
-        expect(res.body[0]).to.include.keys(
-          "movie_id",
-          "title",
-          "genre",
-          "duration",
-          "language",
-          "cast",
-          "trailer_url",
-          "release_date"
-        );
-      }
+    beforeEach(() => {
+        req = { params: { id: 1 },
+                body: { 
+                    title: "New Movie", 
+                    genre: "Action", 
+                    duration: 120, 
+                    language: "English", 
+                    cast: "Actor A, Actor B", 
+                    trailer_url: "http://example.com/trailer" 
+                }
+             }; 
+        res = {
+            status: sinon.stub().returnsThis(), 
+            send: sinon.spy(), 
+            json: sinon.spy()
+        };
+        next = sinon.spy(); 
     });
 
-    it("should return 500 error when DB fails (negative case)", async () => {
-      sinon.stub(pool, "query").rejects(new Error("DB connection failed"));
-
-      const res = await request(app).get("/api/movies");
-      expect(res.status).to.equal(500);
-      expect(res.body).to.have.property("error", "DB connection failed");
-    });
-  });
-
-  // ---------------- GET BY ID ----------------
-  describe("Movie GET API by ID", () => {
-    it("should return movie and showtimes (positive case)", async () => {
-      const res = await request(app).get("/api/movies/1");
-      expect(res.status).to.equal(200);
-      expect(res.body).to.have.property("movie");
-      expect(res.body.movie).to.include.keys("title", "genre", "duration");
-      expect(res.body).to.have.property("showtimes");
-      expect(res.body.showtimes).to.be.an("array");
+    afterEach(() => {
+        sinon.restore();
     });
 
-    it("should return 404 if movie not found", async () => {
-      const res = await request(app).get("/api/movies/99999");
-      expect(res.status).to.equal(404);
-      expect(res.text).to.equal("Movie not found");
+    describe('getMoviesList', () => {
+        it('should return all movies when the movieService.getAllMovies resolves successfully', async () => {
+            const mockMovies = [
+                { id: 1, title: 'Movie 1', genre: 'Action' },
+                { id: 2, title: 'Movie 2', genre: 'Comedy' }
+            ];
+
+            sinon.stub(movieService, 'getAllMovies').resolves(mockMovies);
+
+            await getMoviesList(req, res, next);
+
+            expect(movieService.getAllMovies.calledOnce).to.be.true;
+            expect(res.json.calledOnce).to.be.true;
+            expect(res.json.calledWith(mockMovies)).to.be.true;
+            expect(next.called).to.be.false;
+        });
+
+        it('should call next with an error when movieService.getAllMovies rejects', async () => {
+            const errorMessage = 'Database query failed';
+            const error = new Error(errorMessage);
+
+            sinon.stub(movieService, 'getAllMovies').rejects(error);
+
+            await getMoviesList(req, res, next);
+
+            expect(movieService.getAllMovies.calledOnce).to.be.true;
+            expect(res.json.called).to.be.false; // Ensure `res.json` is not called
+            expect(next.calledOnce).to.be.true;
+            expect(next.calledWith(error)).to.be.true; // Ensure `next` is called with the error
+        });
+
+        it('should return an empty array if no movies are found', async () => {
+            const mockMovies = [];
+            sinon.stub(movieService, 'getAllMovies').resolves(mockMovies);
+
+            await getMoviesList(req, res, next);
+
+            expect(movieService.getAllMovies.calledOnce).to.be.true;
+            expect(res.json.calledOnce).to.be.true;
+            expect(res.json.calledWith(mockMovies)).to.be.true;
+            expect(next.called).to.be.false;
+        });
     });
 
-    it("should return 500 if DB error occurs", async () => {
-      sinon.stub(pool, "query").rejects(new Error("DB connection failed"));
-
-      const res = await request(app).get("/api/movies/1");
-      expect(res.status).to.equal(500);
-      expect(res.body).to.have.property("error", "DB connection failed");
-    });
-  });
-
-  // ---------------- POST ----------------
-  describe("Movie POST API", () => {
-    it("should insert a new movie", async () => {
-      const newMovie = {
-        title: "Test Movie",
-        genre: "Drama",
-        duration: 120,
-        language: "English",
-        cast: "Actor A, Actor B",
-        trailer_url: "http://test.com/trailer",
-        release_date: "2026-02-27",
-      };
-
-      const res = await request(app).post("/api/movies").send(newMovie);
-      expect(res.status).to.equal(200);
-      expect(res.body).to.have.property("movie_id");
-      expect(res.body.movie_id).to.be.a("number").and.to.be.greaterThan(0);
-    });
-
-    it("should return 500 if DB insert fails", async () => {
-      sinon.stub(pool, "query").rejects(new Error("DB connection failed"));
-
-      const res = await request(app).post("/api/movies").send({
-        genre: "Drama",
-      });
-      expect(res.status).to.equal(500);
-      expect(res.body).to.have.property("error", "DB connection failed");
-    });
-  });
-
-  // ---------------- PUT & DELETE ----------------
-  describe("Movie Update and Delete API", () => {
-    let createdMovieId;
-
-    before(async () => {
-      const res = await request(app).post("/api/movies").send({
-        title: "Temp Movie",
-        genre: "Drama",
-        duration: 100,
-        language: "English",
-        cast: "Actor X",
-        trailer_url: "http://example.com",
-        release_date: "2026-02-27",
-      });
-      createdMovieId = res.body.movie_id;
+    describe('getMovieById', () => {
+        it('should return movie details when the getMovieById resolves successfully', async () => {
+            const mockMovieRows = [{ id: 1, title: 'Movie 1', genre: 'Action' }];
+            const mockShowRows = [
+                { id: 101, movieId: 1, time: '10:00 AM' },
+                { id: 102, movieId: 1, time: '02:00 PM' }
+            ];
+    
+            sinon.stub(movieService, 'getMovieById').resolves({ movieRows: mockMovieRows, showRows: mockShowRows });
+    
+            await getMovieById(req, res, next);
+    
+            expect(movieService.getMovieById.calledOnce).to.be.true;
+            expect(movieService.getMovieById.firstCall.args[0]).to.equal(req.params.id);
+            expect(res.json.calledOnce).to.be.true;
+            expect(res.json.calledWith({
+                movie: mockMovieRows[0],
+                showtimes: mockShowRows
+            })).to.be.true;
+            expect(next.called).to.be.false; 
+        });
+    
+        it('should return 404 when the getMovieById resolves with empty movieRows', async () => {
+            const mockMovieRows = [];
+            const mockShowRows = [];
+    
+            sinon.stub(movieService, 'getMovieById').resolves({ movieRows: mockMovieRows, showRows: mockShowRows });
+    
+            await getMovieById(req, res, next);
+    
+            expect(movieService.getMovieById.calledOnce).to.be.true;
+            expect(movieService.getMovieById.firstCall.args[0]).to.equal(req.params.id); 
+            expect(res.status.calledWith(404)).to.be.true; 
+            expect(res.send.calledWith('Movie not found')).to.be.true; 
+            expect(res.json.called).to.be.false; 
+            expect(next.called).to.be.false; 
+        });
+    
+        it('should call next with an error when the getMovieById rejects', async () => {
+            const errorMessage = 'Database query failed';
+            const error = new Error(errorMessage);
+    
+            sinon.stub(movieService, 'getMovieById').rejects(error);
+    
+            await getMovieById(req, res, next);
+    
+            expect(movieService.getMovieById.calledOnce).to.be.true;
+            expect(movieService.getMovieById.firstCall.args[0]).to.equal(req.params.id); 
+            expect(res.status.called).to.be.false; 
+            expect(next.calledOnce).to.be.true;
+            expect(next.calledWith(error)).to.be.true; 
+        });
     });
 
-    it("should update an existing movie", async () => {
-      const res = await request(app).put(`/api/movies/${createdMovieId}`).send({
-        title: "Updated Temp Movie",
-        genre: "Thriller",
-        duration: 110,
-        language: "English",
-        cast: "Actor Y",
-        trailer_url: "http://example.com/trailer",
-        release_date: "2026-02-28",
-      });
-      expect(res.status).to.equal(200);
-      expect(res.body.message).to.equal("Movie updated successfully");
+    describe('createMovie', () => {
+        it('should return the new movie ID when movieService.createNewMovie resolves successfully', async () => {
+            const mockResult = { insertId: 1 };
+            sinon.stub(movieService, 'createNewMovie').resolves(mockResult);
+            await createMovie(req, res, next);
+
+            expect(movieService.createNewMovie.calledOnce).to.be.true;
+            expect(movieService.createNewMovie.calledWith(req.body)).to.be.true;
+            expect(res.json.calledOnce).to.be.true;
+            expect(res.json.calledWith({ movie_id: mockResult.insertId })).to.be.true;
+            expect(next.called).to.be.false;
+        });
+
+        it('should call next with an error when movieService.createNewMovie rejects', async () => {
+            const error = new Error('Database error');
+            sinon.stub(movieService, 'createNewMovie').rejects(error);
+            await createMovie(req, res, next);
+
+            expect(movieService.createNewMovie.calledOnce).to.be.true;
+            expect(res.json.called).to.be.false;
+            expect(next.calledOnce).to.be.true;
+            expect(next.calledWith(error)).to.be.true;
+        });
     });
 
-    it("should return 404 when updating non-existent movie", async () => {
-      const res = await request(app).put("/api/movies/9999").send({
-        title: "Ghost Movie",
-        genre: "Fantasy",
-        duration: 120,
-        language: "English",
-        cast: "Nobody",
-        trailer_url: "http://example.com",
-        release_date: "2026-02-28",
-      });
-      expect(res.status).to.equal(404);
-      expect(res.text).to.equal("Movie not found");
+    describe('updateMovie', () => {
+        it('should return success message when movieService.updateMovieById resolves with affectedRows > 0', async () => {
+            const mockResult = { affectedRows: 1 };
+            sinon.stub(movieService, 'updateMovieById').resolves(mockResult);
+            await updateMovie(req, res, next);
+
+            expect(movieService.updateMovieById.calledOnce).to.be.true;
+            expect(movieService.updateMovieById.calledWith(req)).to.be.true;
+            expect(res.json.calledOnce).to.be.true;
+            expect(res.json.calledWith({ message: 'Movie updated successfully' })).to.be.true;
+            expect(next.called).to.be.false;
+        });
+
+        it('should return 404 when movieService.updateMovieById resolves with affectedRows = 0', async () => {
+            const mockResult = { affectedRows: 0 };
+            sinon.stub(movieService, 'updateMovieById').resolves(mockResult);
+            await updateMovie(req, res, next);
+
+            expect(movieService.updateMovieById.calledOnce).to.be.true;
+            expect(res.status.calledOnce).to.be.true;
+            expect(res.status.calledWith(404)).to.be.true;
+            expect(res.send.calledOnce).to.be.true;
+            expect(res.send.calledWith('Movie not found')).to.be.true;
+            expect(next.called).to.be.false;
+        });
+
+        it('should call next with an error when movieService.updateMovieById rejects', async () => {
+            const error = new Error('Database error');
+            sinon.stub(movieService, 'updateMovieById').rejects(error);
+            await updateMovie(req, res, next);
+
+            expect(movieService.updateMovieById.calledOnce).to.be.true;
+            expect(next.calledOnce).to.be.true;
+            expect(next.calledWith(error)).to.be.true;
+        });
     });
 
-    it("should delete an existing movie", async () => {
-      const res = await request(app).delete(`/api/movies/${createdMovieId}`);
-      expect(res.status).to.equal(200);
-      expect(res.body.message).to.equal("Movie deleted successfully");
-    });
+    describe('deleteMovie', () => {
+        it('should return success message when movieService.deleteMovieById resolves with affectedRows > 0', async () => {
+            const mockResult = { affectedRows: 1 };
+            sinon.stub(movieService, 'deleteMovieById').resolves(mockResult);
 
-    it("should return 404 when deleting non-existent movie", async () => {
-      const res = await request(app).delete("/api/movies/9999");
-      expect(res.status).to.equal(404);
-      expect(res.text).to.equal("Movie not found");
+            req.params.id = '1';
+
+            await deleteMovie(req, res, next);
+
+            expect(movieService.deleteMovieById.calledOnce).to.be.true;
+            expect(movieService.deleteMovieById.calledWith('1')).to.be.true;
+            expect(res.json.calledOnce).to.be.true;
+            expect(res.json.calledWith({ message: 'Movie deleted successfully' })).to.be.true;
+            expect(next.called).to.be.false;
+        });
+
+        it('should return 404 when movieService.deleteMovieById resolves with affectedRows = 0', async () => {
+            const mockResult = { affectedRows: 0 };
+            sinon.stub(movieService, 'deleteMovieById').resolves(mockResult);
+
+            req.params.id = '1';
+
+            await deleteMovie(req, res, next);
+
+            expect(movieService.deleteMovieById.calledOnce).to.be.true;
+            expect(res.status.calledOnce).to.be.true;
+            expect(res.status.calledWith(404)).to.be.true;
+            expect(res.send.calledOnce).to.be.true;
+            expect(res.send.calledWith('Movie not found')).to.be.true;
+            expect(next.called).to.be.false;
+        });
+
+        it('should call next with an error when movieService.deleteMovieById rejects', async () => {
+            const error = new Error('Database error');
+            sinon.stub(movieService, 'deleteMovieById').rejects(error);
+
+            req.params.id = '1';
+
+            await deleteMovie(req, res, next);
+
+            expect(movieService.deleteMovieById.calledOnce).to.be.true;
+            expect(next.calledOnce).to.be.true;
+            expect(next.calledWith(error)).to.be.true;
+        });
     });
-  });
 });

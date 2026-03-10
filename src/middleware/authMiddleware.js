@@ -8,9 +8,12 @@ function authMiddleware(req, res, next) {
   }
 
   const token = authHeader.split(" ")[1];
+  console.log('authHeader->', authHeader);
+  console.log('token->', token);
+  console.log('verify->', jwt.verify(token, SECRET));
   try {
     const decoded = jwt.verify(token, SECRET);
-    req.user = decoded; // attach user info to request
+    req.user = decoded; 
     next();
   } catch (err) {
     return res.status(401).json({ message: "Invalid token" });
