@@ -1,4 +1,7 @@
 const authService = require("../services/authServices");
+const jwt = require("jsonwebtoken");
+const SECRET = "mysecretkey";
+
 const register = async (req, res, next) =>{
     try {
         const result = await authService.createUser(req.body);
@@ -26,8 +29,12 @@ const login = async (req, res, next) =>{
             throw error;
         }
 
-        res.json({ userDetail: { id: matchedUser.id, name: matchedUser.name, email: matchedUser.email}, 
-            message: "Login Successfully" })
+        const token = jwt.sign(
+        { id: matchedUser.id, name: matchedUser.name, email: matchedUser.email },
+        SECRET,
+        { expiresIn: "1h" }
+        );
+        res.json({ token, message: "Login successful" });
     } catch (err){
         next(err);
     }
