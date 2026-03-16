@@ -1,5 +1,6 @@
+require('dotenv').config({ path: './.env' });
 const jwt = require("jsonwebtoken");
-const SECRET = "mysecretkey"; // same secret you used in auth.js
+const SECRET = process.env.JWT_SECRET; // same secret you used in auth.js
 
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
